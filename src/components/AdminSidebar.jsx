@@ -3,29 +3,33 @@ import {
   FaUser,
   FaCalendarAlt,
   FaMoneyCheckAlt,
-  FaInfoCircle,
-  FaTools,
-  FaCogs,
-  FaChartLine,
   FaArchive,
   FaCog,
+  FaCheckCircle, // ✅ gamit na sa Validation
 } from "react-icons/fa";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
 import { HiMenu } from "react-icons/hi";
+import { FiChevronDown, FiChevronUp } from "react-icons/fi";
 
 const AdminSidebar = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const [registrantOpen, setRegistrantOpen] = useState(false);
 
   const menuItems = [
-    { label: "Dashboard", icon: <FaTachometerAlt />, path: "/admin" },
-    { label: "Senior Citizen", icon: <FaUser />, path: "/admin/senior-citizen" },
+    { label: "Dashboard", icon: <FaTachometerAlt />, path: "/admin", exact: true },
+    {
+      label: "Registrants",
+      icon: <FaUser />,
+      path: "/admin/registrant",
+      exact: true,
+      subMenu: [
+        { label: "Validation", icon: <FaCheckCircle />, path: "/admin/validation" }, // ✅ updated icon
+      ],
+    },
     { label: "Calendar", icon: <FaCalendarAlt />, path: "/admin/calendar" },
     { label: "Pension", icon: <FaMoneyCheckAlt />, path: "/admin/pension" },
-    { label: "Archive Records", icon: <FaArchive  />, path: "/inquiry" },
-    // { label: "Coordinator Tools", icon: <FaTools />, path: "/coordinator-tools" },
-    // { label: "Policy Admin", icon: <FaCogs />, path: "/policy-admin" },
-    // { label: "Reports", icon: <FaChartLine />, path: "/reports" },
+    { label: "Archive Records", icon: <FaArchive />, path: "/admin/archive" },
     { label: "Settings", icon: <FaCog />, path: "/admin/settings" },
   ];
 
@@ -54,23 +58,78 @@ const AdminSidebar = () => {
         }`}
       >
         <ul className="pt-4">
-          {menuItems.map(({ label, icon, path }) => (
-            <NavLink
-              key={path}
-              to={path}
-              onClick={() => setIsOpen(false)} // close menu when item is clicked
-              className={({ isActive }) =>
-                `flex items-center gap-2 px-4 py-2 cursor-pointer ${
-                  isActive
-                    ? "bg-orange-100 text-orange-600 font-semibold"
-                    : "hover:bg-gray-100 text-gray-700"
-                }`
-              }
-            >
-              {icon}
-              <span>{label}</span>
-            </NavLink>
-          ))}
+          {menuItems.map(({ label, icon, path, subMenu, exact }) =>
+            subMenu ? (
+              <li key={label}>
+                <div className="flex items-center justify-between">
+                  {/* Parent link (Registrants main page) */}
+                  <NavLink
+                    to={path}
+                    end={exact}
+                    onClick={() => setIsOpen(false)}
+                    className={({ isActive }) =>
+                      `flex items-center gap-2 px-4 py-2 w-full rounded-md transition-colors duration-200 ${
+                        isActive
+                          ? "bg-orange-100 text-orange-600 font-semibold"
+                          : "text-gray-700 hover:bg-gray-100 hover:text-orange-500"
+                      }`
+                    }
+                  >
+                    {icon}
+                    <span>{label}</span>
+                  </NavLink>
+
+                  {/* Arrow toggle ONLY */}
+                  <button
+                    onClick={() => setRegistrantOpen(!registrantOpen)}
+                    className="px-2 text-gray-600 hover:text-orange-500"
+                  >
+                    {registrantOpen ? <FiChevronUp /> : <FiChevronDown />}
+                  </button>
+                </div>
+
+                {/* Submenu */}
+                {registrantOpen && (
+                  <ul className="pl-10">
+                    {subMenu.map(({ label, icon, path }) => (
+                      <NavLink
+                        key={path}
+                        to={path}
+                        onClick={() => setIsOpen(false)}
+                        className={({ isActive }) =>
+                          `flex items-center gap-2 px-2 py-2 rounded-md transition-colors duration-200 ${
+                            isActive
+                              ? "text-orange-600 font-semibold bg-orange-50"
+                              : "text-gray-600 hover:bg-gray-100 hover:text-orange-500"
+                          }`
+                        }
+                      >
+                        {icon}
+                        <span>{label}</span>
+                      </NavLink>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ) : (
+              <NavLink
+                key={path}
+                to={path}
+                end={exact}
+                onClick={() => setIsOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-2 px-4 py-2 rounded-md transition-colors duration-200 ${
+                    isActive
+                      ? "bg-orange-100 text-orange-600 font-semibold"
+                      : "text-gray-700 hover:bg-gray-100 hover:text-orange-500"
+                  }`
+                }
+              >
+                {icon}
+                <span>{label}</span>
+              </NavLink>
+            )
+          )}
         </ul>
       </div>
     </>

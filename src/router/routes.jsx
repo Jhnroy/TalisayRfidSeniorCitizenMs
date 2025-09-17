@@ -12,11 +12,12 @@ import LandingPage from "../pages/LandingPage";
 import Login from "../pages/admin/Login";
 import SignUp from "../pages/admin/SignUp";
 import AdminDashboard from "../pages/admin/AdminDashboard";
-import SeniorcitizenList from "../pages/admin/SeniorcitizenList";
+import Registrant from "../pages/admin/Registrant";
+import Validation from "../pages/admin/Validation";
 import Pension from "../pages/admin/Pension";
 import Calendar from "../pages/admin/Calendar";
 import Settings from "../pages/admin/Settings";
-import NotFound from "../pages/NotFound"; // ✅ Added custom 404 page
+import NotFound from "../pages/NotFound"; //  Added custom 404 page
 
 // ==============================
 // 🔒 Protected Route Component
@@ -73,10 +74,10 @@ const routes = createBrowserRouter([
         ),
       },
       {
-        path: "senior-citizen",
+        path: "registrant",
         element: (
           <ProtectedRoute>
-            <SeniorcitizenList />
+            <Registrant />
           </ProtectedRoute>
         ),
       },
@@ -101,6 +102,14 @@ const routes = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <Settings />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "validation",
+        element: (
+          <ProtectedRoute>
+            <Validation />
           </ProtectedRoute>
         ),
       },
