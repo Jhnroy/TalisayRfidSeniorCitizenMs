@@ -3,10 +3,14 @@ import {
   FaUser,
   FaCalendarAlt,
   FaMoneyCheckAlt,
-  FaArchive,
+  FaFileAlt,
   FaCog,
-  FaCheckCircle, // ✅ gamit na sa Validation
+  FaCheckCircle, 
+  FaIdBadge,       // 👈 para sa RFID Binding
+  FaAddressCard,   // 👈 para sa Masterlist
 } from "react-icons/fa";
+
+
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
 import { HiMenu } from "react-icons/hi";
@@ -24,12 +28,13 @@ const AdminSidebar = () => {
       path: "/admin/registrant",
       exact: true,
       subMenu: [
-        { label: "Validation", icon: <FaCheckCircle />, path: "/admin/validation" }, // ✅ updated icon
+        { label: "Validation", icon: <FaCheckCircle />, path: "/admin/validation" }, // updated icon
       ],
     },
+    {label: "RFID Binding", icon: <FaIdBadge />, path: "/admin/rfid-binding", exact: true},
     { label: "Calendar", icon: <FaCalendarAlt />, path: "/admin/calendar" },
+    { label: "Masterlist", icon: <FaAddressCard/>, path: "/admin/masterlist" },
     { label: "Pension", icon: <FaMoneyCheckAlt />, path: "/admin/pension" },
-    { label: "Archive Records", icon: <FaArchive />, path: "/admin/archive" },
     { label: "Settings", icon: <FaCog />, path: "/admin/settings" },
   ];
 

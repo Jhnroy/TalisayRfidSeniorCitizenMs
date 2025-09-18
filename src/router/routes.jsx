@@ -13,6 +13,8 @@ import Login from "../pages/admin/Login";
 import SignUp from "../pages/admin/SignUp";
 import AdminDashboard from "../pages/admin/AdminDashboard";
 import Registrant from "../pages/admin/Registrant";
+import Masterlist from "../pages/admin/Masterlist";
+import RfidDBinding from "../pages/admin/RfBinding";
 import Validation from "../pages/admin/Validation";
 import Pension from "../pages/admin/Pension";
 import Calendar from "../pages/admin/Calendar";
@@ -82,6 +84,22 @@ const routes = createBrowserRouter([
         ),
       },
       {
+        path: "rfid-binding",
+        element: (
+          <ProtectedRoute>
+            <RFIDBinding />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "rfid-binding",
+        element: (
+          <ProtectedRoute>
+            <RfidDBinding />
+          </ProtectedRoute>
+        ),
+      },
+      {
         path: "pension",
         element: (
           <ProtectedRoute>
@@ -97,6 +115,15 @@ const routes = createBrowserRouter([
           </ProtectedRoute>
         ),
       },
+      {
+        path: "masterlist",
+        element: (
+          <ProtectedRoute>
+            <Masterlist />
+          </ProtectedRoute>
+        ),
+      },
+
       {
         path: "settings",
         element: (

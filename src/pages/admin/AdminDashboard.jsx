@@ -1,187 +1,149 @@
-import { useEffect, useState } from "react";
-import {
-  FaMoneyBillWave,
-  FaCheckCircle,
-  FaFileAlt,
-} from "react-icons/fa";
-import { FiUsers, FiCheck, FiClock } from "react-icons/fi";
-import { HiOutlineCreditCard } from "react-icons/hi2";
-import {
-  MdOutlineEventNote,
-  MdOutlineVerifiedUser,
-  MdOutlineCake,
-} from "react-icons/md";
-
-// Firebase
-import { initializeApp } from "firebase/app";
-import { getDatabase, ref, onValue } from "firebase/database";
-
-// Firebase Config
-const firebaseConfig = {
-  apiKey: "AIzaSyChxzDRb2g3V2c6IeP8WF3baunT-mnnR68",
-  authDomain: "rfidseniorcitizenms.firebaseapp.com",
-  databaseURL:
-    "https://rfidseniorcitizenms-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "rfidseniorcitizenms",
-  storageBucket: "rfidseniorcitizenms.firebasestorage.app",
-  messagingSenderId: "412368953505",
-  appId: "1:412368953505:web:43c8b2f607e50b9fde10e0",
-  measurementId: "G-KGRDKXYP4S",
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+import { FaUsers, FaCheckCircle, FaMoneyBillWave, FaUser } from "react-icons/fa";
 
 const AdminDashboard = () => {
-  const [stats, setStats] = useState({
-    total: 0,
-    active: 0,
-    pending: 0,
-    payout: 0,
-  });
+  const stats = [
+    { title: "Total Senior Citizens Registered", value: "1,247", icon: <FaUsers />, color: "bg-blue-100 text-blue-600" },
+    { title: "Total Eligible for Pension", value: "892", icon: <FaCheckCircle />, color: "bg-green-100 text-green-600" },
+    { title: "Monthly Payout Amount", value: "₱1,000", icon: <FaMoneyBillWave />, color: "bg-orange-100 text-orange-600" },
+    { title: "Total Active Beneficiaries", value: "892", icon: <FaUser />, color: "bg-yellow-100 text-yellow-600" },
+  ];
 
-  // Fetch senior citizen stats
-  useEffect(() => {
-    const archivedRef = ref(db, "archivedSeniorCitizens");
-    const registeredRef = ref(db, "registered_uids");
+  const barangays = [
+    { name: "Binanuuan", count: 67 },
+    { name: "Caawigan", count: 54 },
+    { name: "Cahabaan", count: 42 },
+    { name: "Calintaan", count: 78 },
+    { name: "Del Carmen", count: 89 },
+    { name: "Gabon", count: 35 },
+    { name: "Itomang", count: 61 },
+    { name: "Poblacion", count: 125 },
+    { name: "San Francisco", count: 73 },
+    { name: "San Isidro", count: 48 },
+    { name: "San Jose", count: 56 },
+    { name: "San Nicolas", count: 39 },
+    { name: "Santa Cruz", count: 84 },
+    { name: "Santa Elena", count: 71 },
+    { name: "Santo Niño", count: 65 },
+  ];
 
-    const processData = (snapshot, accumulated) => {
-      const data = snapshot.val();
-      if (data) {
-        Object.values(data).forEach((citizen) => {
-          accumulated.total += 1;
-          if (citizen.status === "Claimed") accumulated.active += 1;
-          if (citizen.status === "Unclaimed") accumulated.pending += 1;
-          if (citizen.current_balance)
-            accumulated.payout += Number(citizen.current_balance);
-        });
-      }
-      return accumulated;
-    };
+  const upcomingOctogenarians = [
+    { name: "Maria Santos", age: 79, birthday: "March 15, 2024", barangay: "Barangay Central" },
+    { name: "Jose Reyes", age: 79, birthday: "April 22, 2024", barangay: "Barangay Norte" },
+    { name: "Carmen Cruz", age: 79, birthday: "May 8, 2024", barangay: "Barangay Sur" },
+    { name: "Roberto Garcia", age: 79, birthday: "June 12, 2024", barangay: "Barangay Este" },
+  ];
 
-    const fetchData = () => {
-      let statsAccumulator = { total: 0, active: 0, pending: 0, payout: 0 };
+  const upcomingNonagenarians = [
+    { name: "Elena Mendoza", age: 89, birthday: "July 4, 2024", barangay: "Barangay Poblacion" },
+    { name: "Francisco Torres", age: 89, birthday: "August 19, 2024", barangay: "Barangay Riverside" },
+    { name: "Luz Villanueva", age: 89, birthday: "September 7, 2024", barangay: "Barangay Hillside" },
+  ];
 
-      onValue(archivedRef, (snapshot) => {
-        let updatedStats = processData(snapshot, { ...statsAccumulator });
+  const upcomingCentenarians = [
+    { name: "Esperanza Rodriguez", age: 99, birthday: "October 14, 2024", barangay: "Barangay Centro" },
+    { name: "Domingo Pascual", age: 99, birthday: "December 25, 2024", barangay: "Barangay Vista" },
+  ];
 
-        onValue(registeredRef, (snapshot2) => {
-          updatedStats = processData(snapshot2, updatedStats);
-          setStats(updatedStats);
-        });
-      });
-    };
-
-    fetchData();
-  }, []);
+  // Helper: Table Component
+  const BeneficiaryTable = ({ title, color, benefit, data }) => (
+    <div className="bg-white shadow rounded-lg p-6">
+      <h3 className={`text-lg font-bold mb-4 ${color}`}>{title}</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+          <thead>
+            <tr className="bg-gray-100 text-gray-700">
+              <th className="p-3 text-left">Name</th>
+              <th className="p-3 text-left">Age</th>
+              <th className="p-3 text-left">Birthday</th>
+              <th className="p-3 text-left">Barangay</th>
+              <th className="p-3 text-right">Benefit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((p, i) => (
+              <tr
+                key={i}
+                className={`border-t border-gray-200 ${
+                  i % 2 === 0 ? "bg-white" : "bg-gray-50"
+                } hover:bg-gray-100 transition`}
+              >
+                <td className="p-3">{p.name}</td>
+                <td className="p-3">{p.age}</td>
+                <td className="p-3">{p.birthday}</td>
+                <td className="p-3">{p.barangay}</td>
+                <td className={`p-3 text-right font-bold ${color}`}>{benefit}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
-          <div>
-            <p className="text-gray-600">Total Senior Citizens</p>
-            <h2 className="text-2xl font-bold">{stats.total}</h2>
+    <div className="p-6 space-y-10 bg-gray-50 min-h-screen">
+      {/* Header */}
+      <h1 className="text-3xl font-bold text-gray-800">Dashboard Overview</h1>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {stats.map((stat, index) => (
+          <div
+            key={index}
+            className="bg-white shadow rounded-xl flex items-center gap-4 p-5"
+          >
+            <div
+              className={`w-12 h-12 flex items-center justify-center rounded-lg ${stat.color}`}
+            >
+              {stat.icon}
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">{stat.title}</p>
+              <p className="text-2xl font-bold text-gray-800">{stat.value}</p>
+            </div>
           </div>
-          <FiUsers className="text-orange-500 text-3xl" />
-        </div>
-        <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
-          <div>
-            <p className="text-gray-600">Active Recipients</p>
-            <h2 className="text-2xl font-bold">{stats.active}</h2>
-          </div>
-          <FiCheck className="text-orange-500 text-3xl" />
-        </div>
-        <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
-          <div>
-            <p className="text-gray-600">Pending Applications</p>
-            <h2 className="text-2xl font-bold">{stats.pending}</h2>
-          </div>
-          <FiClock className="text-orange-500 text-3xl" />
-        </div>
-        <div className="bg-white shadow rounded-lg p-4 flex items-center justify-between">
-          <div>
-            <p className="text-gray-600">Monthly Payout</p>
-            <h2 className="text-2xl font-bold">
-              ₱{stats.payout.toLocaleString()}
-            </h2>
-          </div>
-          <HiOutlineCreditCard className="text-orange-500 text-3xl" />
+        ))}
+      </div>
+
+      {/* Active Beneficiaries per Barangay */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4 text-gray-700">
+          Active Beneficiaries Per Barangay
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          {barangays.map((b, i) => (
+            <div
+              key={i}
+              className="bg-white shadow-sm rounded-lg p-4 text-center hover:shadow-md transition"
+            >
+              <h3 className="font-medium text-gray-700">{b.name}</h3>
+              <p className="text-orange-500 text-2xl font-bold">{b.count}</p>
+              <p className="text-xs text-gray-500">Active Beneficiaries</p>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Activities and Schedule */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white shadow rounded-lg p-4">
-          <h3 className="font-semibold text-lg mb-4">Recent Activities</h3>
-          <ul className="space-y-3">
-            <li className="flex items-start gap-2">
-              <FaCheckCircle className="text-gray-500 mt-1" />
-              <div>
-                <p>Maria Santos verified</p>
-                <small className="text-gray-500">2 hours ago</small>
-              </div>
-            </li>
-            <li className="flex items-start gap-2">
-              <MdOutlineEventNote className="text-gray-500 mt-1" />
-              <div>
-                <p>Verification reminder sent</p>
-                <small className="text-gray-500">6 hours ago</small>
-              </div>
-            </li>
-          </ul>
-        </div>
-        <div className="bg-white shadow rounded-lg p-4">
-          <h3 className="font-semibold text-lg mb-4">Upcoming Schedule</h3>
-          <ul className="space-y-3">
-            <li className="flex items-start gap-2">
-              <HiOutlineCreditCard className="text-gray-500 mt-1" />
-              <div>
-                <p>Pension Payout</p>
-                <small className="text-gray-500">March 15, 2025 - 9:00 AM</small>
-              </div>
-            </li>
-            <li className="flex items-start gap-2">
-              <MdOutlineVerifiedUser className="text-gray-500 mt-1" />
-              <div>
-                <p>Verification Drive</p>
-                <small className="text-gray-500">
-                  March 18, 2025 - 8:00 AM
-                </small>
-              </div>
-            </li>
-            <li className="flex items-start gap-2">
-              <MdOutlineCake className="text-gray-500 mt-1" />
-              <div>
-                <p>Birthday Celebration</p>
-                <small className="text-gray-500">
-                  March 20, 2025 - 2:00 PM
-                </small>
-              </div>
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="bg-white shadow rounded-lg p-4">
-        <h3 className="font-semibold text-lg mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          <button className="flex items-center justify-center gap-2 border rounded-lg py-2 hover:bg-green-50">
-            <FaMoneyBillWave className="text-green-500" />
-            <span>Process Payout</span>
-          </button>
-          <button className="flex items-center justify-center gap-2 border rounded-lg py-2 hover:bg-green-50">
-            <FaCheckCircle className="text-green-500" />
-            <span>Verify Application</span>
-          </button>
-          <button className="flex items-center justify-center gap-2 border rounded-lg py-2 hover:bg-blue-50">
-            <FaFileAlt className="text-blue-500" />
-            <span>Generate Report</span>
-          </button>
-        </div>
+      {/* Upcoming Beneficiaries */}
+      <div className="space-y-6">
+        <BeneficiaryTable
+          title="Upcoming Octogenarians (₱10,000 Benefit)"
+          color="text-orange-600"
+          benefit="₱10,000"
+          data={upcomingOctogenarians}
+        />
+        <BeneficiaryTable
+          title="Upcoming Nonagenarians (₱10,000 Benefit)"
+          color="text-green-600"
+          benefit="₱10,000"
+          data={upcomingNonagenarians}
+        />
+        <BeneficiaryTable
+          title="Upcoming Centenarians (₱100,000 Benefit)"
+          color="text-purple-600"
+          benefit="₱100,000"
+          data={upcomingCentenarians}
+        />
       </div>
     </div>
   );
