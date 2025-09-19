@@ -1,5 +1,9 @@
 import { useState } from "react";
 import { FaDownload, FaUpload } from "react-icons/fa";
+import Papa from "papaparse";   // ✅ for CSV
+import * as XLSX from "xlsx";  // ✅ for Excel
+import { db } from "../../router/Firebase"; // adjust path kung nasa ibang folder
+import { collection, addDoc, setDoc, doc } from "firebase/firestore";
 
 const Validation = () => {
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -10,19 +14,64 @@ const Validation = () => {
     setFile(e.target.files[0]);
   };
 
-  const handleImport = () => {
-    if (file) {
-      console.log("Importing file:", file.name);
-      // TODO: Upload/parse and save to Firebase
+  // ✅ Import and Save to Firebase
+  const handleImport = async () => {
+    if (!file) return;
+
+    try {
+      let parsedData = [];
+
+      if (file.name.endsWith(".csv")) {
+        const text = await file.text();
+        const result = Papa.parse(text, { header: true });
+        parsedData = result.data.filter((row) => Object.keys(row).length > 0);
+      } else if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        parsedData = XLSX.utils
+          .sheet_to_json(workbook.Sheets[sheetName])
+          .filter((row) => Object.keys(row).length > 0);
+      } else {
+        alert("Only CSV or Excel supported for now.");
+        return;
+      }
+
+      console.log("📥 Imported Data:", parsedData);
+
+      // 🔥 Save each row into Firestore
+      for (const row of parsedData) {
+        const id = row.id || crypto.randomUUID();
+        await setDoc(doc(db, "registrants", id), {
+          name: row.name || row.fullName || "Unknown",
+          barangay: row.barangay || "",
+          status: row.status || "pending",
+          dswdRemarks: row.dswdRemarks || null,
+          importedAt: new Date().toISOString(),
+        });
+      }
+
+      // 🔥 Save import history
+      await addDoc(collection(db, "validationImports"), {
+        fileName: file.name,
+        totalRecords: parsedData.length,
+        importedAt: new Date().toISOString(),
+      });
+
+      alert(`✅ Successfully saved ${parsedData.length} records to Firebase!`);
+
       setIsImportOpen(false);
       setFile(null);
+    } catch (error) {
+      console.error("❌ Import failed:", error);
+      alert("Error importing file. Check console.");
     }
   };
 
+  // ✅ Export (fake for now — you can replace with real backend/email sending)
   const handleExport = () => {
     if (file) {
-      console.log("Sending file to DSWD email:", file.name);
-      // TODO: Send file to DSWD email via backend API (Node.js, Firebase, etc.)
+      alert(`📤 Sending ${file.name} to DSWD...`);
       setIsExportOpen(false);
       setFile(null);
     }
@@ -38,16 +87,14 @@ const Validation = () => {
         </p>
       </div>
 
-      {/* Validation Process Steps */}
+      {/* Validation Steps */}
       <div className="bg-white p-6 rounded-xl shadow grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="flex flex-col items-center text-center">
           <div className="w-10 h-10 flex items-center justify-center rounded-full bg-orange-500 text-white font-bold">
             1
           </div>
           <h2 className="mt-3 font-semibold text-gray-800">Export List</h2>
-          <p className="text-sm text-gray-600">
-            Send registrants list to DSWD for review
-          </p>
+          <p className="text-sm text-gray-600">Send registrants list to DSWD</p>
         </div>
 
         <div className="flex flex-col items-center text-center">
@@ -55,9 +102,7 @@ const Validation = () => {
             2
           </div>
           <h2 className="mt-3 font-semibold text-gray-800">DSWD Review</h2>
-          <p className="text-sm text-gray-600">
-            DSWD validates eligibility and returns results
-          </p>
+          <p className="text-sm text-gray-600">DSWD validates eligibility</p>
         </div>
 
         <div className="flex flex-col items-center text-center">
@@ -65,9 +110,7 @@ const Validation = () => {
             3
           </div>
           <h2 className="mt-3 font-semibold text-gray-800">Import Results</h2>
-          <p className="text-sm text-gray-600">
-            Upload validation results to update statuses
-          </p>
+          <p className="text-sm text-gray-600">Upload results to update</p>
         </div>
       </div>
 
@@ -100,11 +143,10 @@ const Validation = () => {
             Import Validation Results
           </h3>
           <p className="text-sm text-gray-600">
-            Upload results returned by DSWD to update statuses
+            Upload results returned by DSWD
           </p>
           <div className="bg-gray-100 rounded-md px-4 py-2 text-gray-700 text-sm">
-            Last Import:{" "}
-            <span className="font-semibold">2024-01-15 14:30:22</span>
+            Last Import: <span className="font-semibold">2024-01-15 14:30:22</span>
           </div>
           <button
             className="bg-green-600 text-white px-4 py-2 rounded-md shadow hover:bg-green-700 flex items-center gap-2"
@@ -121,10 +163,8 @@ const Validation = () => {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg p-6">
             <h2 className="text-lg font-bold">Send Export List to DSWD</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Select the file to send to DSWD via email
+              Select the file to send to DSWD
             </p>
-
-            {/* File Upload */}
             <div className="mt-4 border-2 border-dashed border-gray-300 p-6 text-center rounded-lg">
               <input
                 type="file"
@@ -132,15 +172,8 @@ const Validation = () => {
                 onChange={handleFileChange}
                 className="w-full cursor-pointer"
               />
-              {file && (
-                <p className="mt-2 text-sm text-gray-700">
-                  Selected file:{" "}
-                  <span className="font-semibold">{file.name}</span>
-                </p>
-              )}
+              {file && <p className="mt-2 text-sm">Selected: {file.name}</p>}
             </div>
-
-            {/* Buttons */}
             <div className="mt-6 flex justify-end gap-2">
               <button
                 className="px-4 py-2 bg-gray-300 rounded-lg"
@@ -166,30 +199,17 @@ const Validation = () => {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg p-6">
             <h2 className="text-lg font-bold">Import Validation Results</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Upload the validation results file received from DSWD
-              <br />
-              <span className="text-red-500">
-                Supported formats: CSV, Excel (.xlsx, .xls), PDF
-              </span>
+              Upload the validation results file (CSV/Excel only)
             </p>
-
-            {/* File Upload */}
             <div className="mt-4 border-2 border-dashed border-gray-300 p-6 text-center rounded-lg">
               <input
                 type="file"
-                accept=".csv,.xlsx,.xls,.pdf"
+                accept=".csv,.xlsx,.xls"
                 onChange={handleFileChange}
                 className="w-full cursor-pointer"
               />
-              {file && (
-                <p className="mt-2 text-sm text-gray-700">
-                  Selected file:{" "}
-                  <span className="font-semibold">{file.name}</span>
-                </p>
-              )}
+              {file && <p className="mt-2 text-sm">Selected: {file.name}</p>}
             </div>
-
-            {/* Buttons */}
             <div className="mt-6 flex justify-end gap-2">
               <button
                 className="px-4 py-2 bg-gray-300 rounded-lg"
