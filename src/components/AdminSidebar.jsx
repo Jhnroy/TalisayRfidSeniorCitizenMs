@@ -34,7 +34,7 @@ const AdminSidebar = () => {
     {label: "RFID Binding", icon: <FaIdBadge />, path: "/admin/rfid-binding", exact: true},
     { label: "Calendar", icon: <FaCalendarAlt />, path: "/admin/calendar" },
     { label: "Masterlist", icon: <FaAddressCard/>, path: "/admin/masterlist" },
-    { label: "Pension", icon: <FaMoneyCheckAlt />, path: "/admin/pension" },
+    // { label: "Pension", icon: <FaMoneyCheckAlt />, path: "/admin/pension" },
     { label: "Settings", icon: <FaCog />, path: "/admin/settings" },
   ];
 

@@ -1,44 +1,116 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { FaSearch, FaLink } from "react-icons/fa";
+import { ExclamationTriangleIcon } from "@heroicons/react/24/outline"; // ✅ clean warning icon
+import { db } from "../../router/Firebase";
+import {
+  collection,
+  getDocs,
+  setDoc,
+  doc,
+  updateDoc,
+  query,
+  onSnapshot,
+} from "firebase/firestore";
 
 const RfidBinding = () => {
   const [selectedMember, setSelectedMember] = useState(null);
   const [rfidCode, setRfidCode] = useState("");
   const [bindings, setBindings] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [barangayFilter, setBarangayFilter] = useState("All Barangays");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Mock eligible members (replace with Firebase/DB later)
-  const members = [
-    { id: 1, name: "Isabel Morales", age: 60, barangay: "San Antonio", status: "Eligible" },
-    { id: 2, name: "Fernando Lopez", age: 65, barangay: "San Jose", status: "Eligible" },
-    { id: 3, name: "Maria Rodriguez", age: 83, barangay: "Poblacion", status: "Eligible" },
-    { id: 4, name: "Minerva Santos", age: 72, barangay: "San Antonio", status: "Eligible" },
-    { id: 5, name: "Lucy Dy", age: 61, barangay: "San Jose", status: "Eligible" },
-    { id: 6, name: "Julius Rodriguez", age: 88, barangay: "Poblacion", status: "Eligible" },
-  ];
+  const [isBinding, setIsBinding] = useState(false);
+  const [bindMessage, setBindMessage] = useState("");
+
+  // ✅ Fetch eligible members
+  useEffect(() => {
+    const fetchEligible = async () => {
+      try {
+        const q = query(collection(db, "eligible"));
+        const snapshot = await getDocs(q);
+        const data = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        setMembers(data);
+      } catch (err) {
+        console.error("⚠️ Failed to fetch eligible:", err);
+      }
+    };
+    fetchEligible();
+  }, [bindings]);
+
+  // ✅ Real-time fetch bindings
+  useEffect(() => {
+    const q = query(collection(db, "rfidBindings"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map((doc) => doc.data());
+      setBindings(data);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const handleSelectMember = (member) => {
     setSelectedMember(member);
+    setBindMessage("");
   };
 
-  const handleBindRfid = () => {
-    if (!selectedMember || !rfidCode) return alert("Select a member and scan RFID first!");
-    const newBinding = {
-      ...selectedMember,
-      rfidCode,
-      date: new Date().toLocaleDateString(),
-      status: "Bound",
-    };
-    setBindings([...bindings, newBinding]);
-    setSelectedMember(null);
-    setRfidCode("");
+  const handleStartScan = () => {
+    const deviceDetected = false; // 🚨 Replace with real device detection
+    if (!deviceDetected) {
+      setIsModalOpen(true);
+    } else {
+      setRfidCode("RFID" + Math.floor(Math.random() * 1000000));
+    }
   };
+
+  const handleBindRfid = async () => {
+    if (!selectedMember || !rfidCode) return;
+
+    setIsBinding(true);
+    setBindMessage("");
+
+    try {
+      const newBinding = {
+        ...selectedMember,
+        rfidCode,
+        date: new Date().toISOString(),
+        status: "Bound",
+      };
+
+      await setDoc(doc(db, "rfidBindings", selectedMember.id), newBinding);
+      await updateDoc(doc(db, "eligible", selectedMember.id), { rfidCode });
+
+      setBindMessage("✅ RFID successfully bound!");
+      setSelectedMember(null);
+      setRfidCode("");
+    } catch (err) {
+      console.error("❌ Failed to bind RFID:", err);
+      setBindMessage("❌ Error binding RFID. Check console.");
+    } finally {
+      setIsBinding(false);
+    }
+  };
+
+  const filteredMembers = members.filter((m) => {
+    const matchesBarangay =
+      barangayFilter === "All Barangays" || m.barangay === barangayFilter;
+    const matchesSearch =
+      m.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      m.surname?.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesBarangay && matchesSearch;
+  });
 
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">RFID Binding</h1>
-      <p className="text-gray-500">Bind RFID cards to validated senior citizens</p>
+      <p className="text-gray-500">
+        Bind RFID cards to validated senior citizens
+      </p>
 
-      {/* Top Section */}
       <div className="grid md:grid-cols-2 gap-6">
         {/* RFID Scanning Form */}
         <div className="bg-white shadow rounded-xl p-5">
@@ -47,7 +119,11 @@ const RfidBinding = () => {
             <label className="text-sm text-gray-600">Selected Member</label>
             <input
               type="text"
-              value={selectedMember ? selectedMember.name : ""}
+              value={
+                selectedMember
+                  ? `${selectedMember.firstName} ${selectedMember.surname}`
+                  : ""
+              }
               disabled
               className="w-full border rounded-lg p-2 mt-1 bg-gray-100"
             />
@@ -63,16 +139,42 @@ const RfidBinding = () => {
             />
           </div>
           <div className="flex space-x-3 mt-4">
-            <button className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600">
+            <button
+              onClick={handleStartScan}
+              className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600"
+            >
               Start RFID Scan
             </button>
             <button
               onClick={handleBindRfid}
-              className="bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-orange-700"
+              disabled={!selectedMember || !rfidCode || isBinding}
+              className={`px-4 py-2 rounded-lg flex items-center ${
+                !selectedMember || !rfidCode || isBinding
+                  ? "bg-gray-300 cursor-not-allowed"
+                  : "bg-orange-600 hover:bg-orange-700 text-white"
+              }`}
             >
-              <FaLink className="mr-2" /> Bind RFID
+              {isBinding ? (
+                <span className="animate-pulse">⏳ Binding...</span>
+              ) : (
+                <>
+                  <FaLink className="mr-2" /> Bind RFID
+                </>
+              )}
             </button>
           </div>
+
+          {bindMessage && (
+            <p
+              className={`mt-3 text-sm ${
+                bindMessage.includes("✅")
+                  ? "text-green-600"
+                  : "text-red-600"
+              }`}
+            >
+              {bindMessage}
+            </p>
+          )}
         </div>
 
         {/* RFID Bindings */}
@@ -83,7 +185,9 @@ const RfidBinding = () => {
           {bindings.length === 0 ? (
             <div className="text-center text-gray-400 py-10">
               <p>No RFID bindings yet</p>
-              <p className="text-sm">Start by selecting a member and scanning RFID</p>
+              <p className="text-sm">
+                Start by selecting a member and scanning RFID
+              </p>
             </div>
           ) : (
             <table className="w-full border text-sm">
@@ -99,10 +203,14 @@ const RfidBinding = () => {
               <tbody>
                 {bindings.map((b, i) => (
                   <tr key={i}>
-                    <td className="p-2 border">{b.name}</td>
+                    <td className="p-2 border">
+                      {b.firstName} {b.surname}
+                    </td>
                     <td className="p-2 border">{b.barangay}</td>
                     <td className="p-2 border font-mono">{b.rfidCode}</td>
-                    <td className="p-2 border">{b.date}</td>
+                    <td className="p-2 border">
+                      {new Date(b.date).toLocaleDateString()}
+                    </td>
                     <td className="p-2 border text-green-600">{b.status}</td>
                   </tr>
                 ))}
@@ -115,12 +223,16 @@ const RfidBinding = () => {
       {/* Eligible Members */}
       <div className="bg-white shadow rounded-xl p-5">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="font-semibold text-lg">Eligible Members (No RFID)</h2>
-          <select className="border rounded-lg p-2">
+          <h2 className="font-semibold text-lg">Eligible Members</h2>
+          <select
+            className="border rounded-lg p-2"
+            value={barangayFilter}
+            onChange={(e) => setBarangayFilter(e.target.value)}
+          >
             <option>All Barangays</option>
-            <option>San Antonio</option>
-            <option>San Jose</option>
-            <option>Poblacion</option>
+            {[...new Set(members.map((m) => m.barangay))].map((b) => (
+              <option key={b}>{b}</option>
+            ))}
           </select>
         </div>
 
@@ -129,6 +241,8 @@ const RfidBinding = () => {
           <input
             type="text"
             placeholder="Search member..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
             className="flex-1 outline-none"
           />
         </div>
@@ -143,31 +257,70 @@ const RfidBinding = () => {
             </tr>
           </thead>
           <tbody>
-            {members.map((m) => (
+            {filteredMembers.map((m) => (
               <tr key={m.id}>
                 <td className="p-2 border">
-                  {m.name}
-                  <div className="text-xs text-gray-500">Age: {m.age}</div>
+                  {m.firstName} {m.surname}
+                  {m.age && (
+                    <div className="text-xs text-gray-500">Age: {m.age}</div>
+                  )}
                 </td>
                 <td className="p-2 border">{m.barangay}</td>
-                <td className="p-2 border text-green-600">{m.status}</td>
+                <td className="p-2 border text-green-600">Eligible</td>
                 <td className="p-2 border">
-                  <button
-                    onClick={() => handleSelectMember(m)}
-                    className={`px-3 py-1 rounded-lg text-sm ${
-                      selectedMember?.id === m.id
-                        ? "bg-red-100 text-red-600 border border-red-400"
-                        : "bg-orange-500 text-white hover:bg-orange-600"
-                    }`}
-                  >
-                    {selectedMember?.id === m.id ? "Selected" : "Select"}
-                  </button>
+                  {m.rfidCode ? (
+                    <span className="px-3 py-1 rounded-lg text-sm bg-gray-200 text-gray-600 border">
+                      Already Bound
+                    </span>
+                  ) : selectedMember?.id === m.id ? (
+                    <button
+                      onClick={() => setSelectedMember(null)}
+                      className="px-3 py-1 rounded-lg text-sm bg-red-100 text-red-600 border border-red-400"
+                    >
+                      Selected
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleSelectMember(m)}
+                      className="px-3 py-1 rounded-lg text-sm bg-orange-500 text-white hover:bg-orange-600"
+                    >
+                      Select
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
+            {filteredMembers.length === 0 && (
+              <tr>
+                <td colSpan="4" className="text-center text-gray-400 py-4">
+                  No eligible members found
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      {/* ⚠️ Modal Warning */}
+      {isModalOpen && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/50">
+          <div className="bg-white p-6 rounded-xl shadow-xl max-w-sm w-full text-center border border-gray-200">
+            <ExclamationTriangleIcon className="h-12 w-12 text-red-500 mx-auto mb-3" />
+            <h2 className="text-lg font-bold text-red-600 mb-2">
+              No RFID Device Detected
+            </h2>
+            <p className="text-gray-600 mb-4">
+              Please make sure your RFID scanner is connected and try again.
+            </p>
+            <button
+              onClick={() => setIsModalOpen(false)}
+              className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
