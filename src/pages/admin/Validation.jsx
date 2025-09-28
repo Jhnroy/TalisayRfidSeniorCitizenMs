@@ -12,16 +12,19 @@ import {
   limitToLast,
   equalTo,
 } from "firebase/database";
+import emailjs from "emailjs-com"; // ✅ EmailJS
 
 const Validation = () => {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isMasterlistOpen, setIsMasterlistOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+
   const [lastImport, setLastImport] = useState(null);
   const [lastMasterlistImport, setLastMasterlistImport] = useState(null);
+  const [lastExport, setLastExport] = useState(null);
 
-  // Fetch last imports from RTDB
+  // ================== FETCH LAST IMPORTS / EXPORT ==================
   useEffect(() => {
     const fetchLastImport = async () => {
       try {
@@ -57,11 +60,29 @@ const Validation = () => {
       }
     };
 
+    const fetchLastExport = async () => {
+      try {
+        const q = query(
+          ref(rtdb, "validationExports"),
+          orderByChild("sentAt"),
+          limitToLast(1)
+        );
+        const snapshot = await get(q);
+        if (snapshot.exists()) {
+          const data = Object.values(snapshot.val())[0];
+          setLastExport(new Date(data.sentAt));
+        }
+      } catch (err) {
+        console.error("⚠️ Failed to fetch last export:", err);
+      }
+    };
+
     fetchLastImport();
     fetchLastMasterlistImport();
+    fetchLastExport();
   }, []);
 
-  // ✅ Check duplicate imports by fileName in RTDB
+  // ================== DUPLICATE FILE CHECK ==================
   const isDuplicateFile = async (fileName, type) => {
     try {
       const q = query(
@@ -80,7 +101,7 @@ const Validation = () => {
     }
   };
 
-  // ✅ Parse CSV/Excel
+  // ================== FILE PARSER ==================
   const parseFile = async (file) => {
     if (file.name.endsWith(".csv")) {
       const text = await file.text();
@@ -95,14 +116,14 @@ const Validation = () => {
     }
   };
 
-  // ✅ Helper: Generate unique ID
+  // ================== HELPER: ID GEN ==================
   const generateId = (baseId) => {
     return baseId
       ? baseId.toString()
       : `${Date.now().toString()}-${Math.random().toString(36).substr(2, 5)}`;
   };
 
-  // ✅ Import Validation Results
+  // ================== IMPORT VALIDATION ==================
   const handleImportValidation = async (file) => {
     if (!file) return alert("⚠️ Please select a file first.");
     setLoading(true);
@@ -166,7 +187,7 @@ const Validation = () => {
     }
   };
 
-  // ✅ Import Masterlist
+  // ================== IMPORT MASTERLIST ==================
   const handleImportMasterlist = async (file) => {
     if (!file) return alert("⚠️ Please select a file first.");
     setLoading(true);
@@ -227,12 +248,57 @@ const Validation = () => {
     }
   };
 
-  // ✅ Export
+  // ================== EXPORT WITH ATTACHMENT ==================
   const handleExport = (file) => {
-    if (file) {
-      alert(`📤 Sending ${file.name} to DSWD...`);
-      setIsExportOpen(false);
+    if (!file) return alert("⚠️ Please select a file first.");
+
+    if (file.size > 25 * 1024 * 1024) {
+      alert("❌ File too large. Max 25MB allowed.");
+      return;
     }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64File = reader.result.split(",")[1]; // strip header
+
+      try {
+        await emailjs.send(
+          "service_6au9z6a", // ✅ Your EmailJS service ID
+          "template_1o119d9", // ✅ Your template ID
+          {
+            to_email: "rascojohnroy47@gmail.com",
+            name: "MSWDO System",
+            time: new Date().toLocaleString(),
+            message: `Attached is the export file: ${file.name}`,
+          },
+          "NPDvgPunvpY19VhM4", // ✅ Your Public Key
+          {
+            attachments: [
+              {
+                name: file.name,
+                data: base64File,
+              },
+            ],
+          }
+        );
+
+        // Log export
+        const logId = generateId();
+        const now = Date.now();
+        await rtdbSet(ref(rtdb, `validationExports/${logId}`), {
+          fileName: file.name,
+          sentAt: now,
+        });
+
+        setLastExport(new Date(now));
+        alert(`✅ Successfully sent ${file.name} with attachment!`);
+        setIsExportOpen(false);
+      } catch (err) {
+        console.error("❌ Failed to send:", err);
+        alert("Error sending file. Check console.");
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -247,7 +313,9 @@ const Validation = () => {
           icon={<FaDownload className="text-orange-500 text-3xl" />}
           title="Export List for DSWD"
           subtitle="Choose a file and send to DSWD email"
-          footer={`Registrants: 1,247`}
+          footer={`Last Sent: ${
+            lastExport ? lastExport.toLocaleString() : "No exports yet"
+          }`}
           buttonLabel="Send to DSWD"
           onClick={() => setIsExportOpen(true)}
           buttonStyle="bg-blue-600 hover:bg-blue-700"
@@ -308,7 +376,7 @@ const Validation = () => {
   );
 };
 
-// ✅ Card Component
+// ================== CARD COMPONENT ==================
 const Card = ({
   icon,
   title,
@@ -334,7 +402,7 @@ const Card = ({
   </div>
 );
 
-// ✅ Modal Component
+// ================== MODAL COMPONENT ==================
 const Modal = ({ title, onClose, onConfirm, confirmLabel }) => {
   const [file, setFile] = useState(null);
 
