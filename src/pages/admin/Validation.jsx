@@ -2,18 +2,16 @@ import { useState, useEffect } from "react";
 import { FaDownload, FaUpload, FaDatabase } from "react-icons/fa";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { db } from "../../router/Firebase";
+import { rtdb } from "../../router/Firebase"; // RTDB only
 import {
-  collection,
-  addDoc,
-  setDoc,
-  doc,
-  getDocs,
+  ref,
+  set as rtdbSet,
+  get,
   query,
-  where,
-  orderBy,
-  limit,
-} from "firebase/firestore";
+  orderByChild,
+  limitToLast,
+  equalTo,
+} from "firebase/database";
 
 const Validation = () => {
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -23,18 +21,19 @@ const Validation = () => {
   const [lastImport, setLastImport] = useState(null);
   const [lastMasterlistImport, setLastMasterlistImport] = useState(null);
 
-  // ✅ Fetch latest imports
+  // Fetch last imports from RTDB
   useEffect(() => {
     const fetchLastImport = async () => {
       try {
         const q = query(
-          collection(db, "validationImports"),
-          orderBy("importedAt", "desc"),
-          limit(1)
+          ref(rtdb, "validationImports"),
+          orderByChild("importedAt"),
+          limitToLast(1)
         );
-        const snapshot = await getDocs(q);
-        if (!snapshot.empty) {
-          setLastImport(snapshot.docs[0].data().importedAt);
+        const snapshot = await get(q);
+        if (snapshot.exists()) {
+          const data = Object.values(snapshot.val())[0];
+          setLastImport(new Date(data.importedAt));
         }
       } catch (err) {
         console.error("⚠️ Failed to fetch last validation import:", err);
@@ -44,13 +43,14 @@ const Validation = () => {
     const fetchLastMasterlistImport = async () => {
       try {
         const q = query(
-          collection(db, "masterlistImports"),
-          orderBy("importedAt", "desc"),
-          limit(1)
+          ref(rtdb, "masterlistImports"),
+          orderByChild("importedAt"),
+          limitToLast(1)
         );
-        const snapshot = await getDocs(q);
-        if (!snapshot.empty) {
-          setLastMasterlistImport(snapshot.docs[0].data().importedAt);
+        const snapshot = await get(q);
+        if (snapshot.exists()) {
+          const data = Object.values(snapshot.val())[0];
+          setLastMasterlistImport(new Date(data.importedAt));
         }
       } catch (err) {
         console.error("⚠️ Failed to fetch last masterlist import:", err);
@@ -61,14 +61,23 @@ const Validation = () => {
     fetchLastMasterlistImport();
   }, []);
 
-  // ✅ Check duplicate imports
+  // ✅ Check duplicate imports by fileName in RTDB
   const isDuplicateFile = async (fileName, type) => {
-    const q = query(
-      collection(db, type === "masterlist" ? "masterlistImports" : "validationImports"),
-      where("fileName", "==", fileName)
-    );
-    const snapshot = await getDocs(q);
-    return !snapshot.empty;
+    try {
+      const q = query(
+        ref(
+          rtdb,
+          type === "masterlist" ? "masterlistImports" : "validationImports"
+        ),
+        orderByChild("fileName"),
+        equalTo(fileName)
+      );
+      const snapshot = await get(q);
+      return snapshot.exists();
+    } catch (err) {
+      console.error("⚠️ Failed to check duplicate file:", err);
+      return false;
+    }
   };
 
   // ✅ Parse CSV/Excel
@@ -86,7 +95,14 @@ const Validation = () => {
     }
   };
 
-  // ✅ Import Validation Results → save to `eligible`
+  // ✅ Helper: Generate unique ID
+  const generateId = (baseId) => {
+    return baseId
+      ? baseId.toString()
+      : `${Date.now().toString()}-${Math.random().toString(36).substr(2, 5)}`;
+  };
+
+  // ✅ Import Validation Results
   const handleImportValidation = async (file) => {
     if (!file) return alert("⚠️ Please select a file first.");
     setLoading(true);
@@ -112,8 +128,8 @@ const Validation = () => {
 
       let savedCount = 0;
       for (const row of parsedData) {
-        const id = row["NO"]?.toString() || crypto.randomUUID();
-        await setDoc(doc(db, "eligible", id), {
+        const id = generateId(row["NO"]);
+        const record = {
           no: row["NO"] || null,
           barangay: row["BARANGAY"] || "",
           surname: row["SURNAME"].trim(),
@@ -124,18 +140,22 @@ const Validation = () => {
           q2_2025: Number(row["2ND QUARTER 2025"]) || 0,
           q3_2025: Number(row["3RD QUARTER 2025"]) || 0,
           totalAmountPaid: Number(row["TOTAL AMOUNT PAID"]) || 0,
-          importedAt: new Date().toISOString(),
-        });
+          importedAt: Date.now(),
+        };
+
+        await rtdbSet(ref(rtdb, `eligible/${id}`), record);
         savedCount++;
       }
 
-      await addDoc(collection(db, "validationImports"), {
+      // Log import
+      const logId = generateId();
+      await rtdbSet(ref(rtdb, `validationImports/${logId}`), {
         fileName: file.name,
         totalRecords: savedCount,
-        importedAt: new Date().toISOString(),
+        importedAt: Date.now(),
       });
 
-      setLastImport(new Date().toISOString());
+      setLastImport(new Date());
       alert(`✅ Successfully saved ${savedCount} eligible records!`);
       setIsImportOpen(false);
     } catch (err) {
@@ -146,7 +166,7 @@ const Validation = () => {
     }
   };
 
-  // ✅ Import Masterlist → save to `masterlist`
+  // ✅ Import Masterlist
   const handleImportMasterlist = async (file) => {
     if (!file) return alert("⚠️ Please select a file first.");
     setLoading(true);
@@ -172,8 +192,8 @@ const Validation = () => {
 
       let savedCount = 0;
       for (const row of parsedData) {
-        const id = row["ID NO."]?.toString() || crypto.randomUUID();
-        await setDoc(doc(db, "masterlist", id), {
+        const id = generateId(row["ID NO."]);
+        const record = {
           no: row["NO"] || null,
           barangay: row["BARANGAY"] || "",
           surname: row["LAST NAME"]?.trim() || "",
@@ -182,18 +202,21 @@ const Validation = () => {
           purok: row["PUROK"] || "",
           birthDate: row["BIRTH DATE"] || null,
           idNo: row["ID NO."] || "",
-          importedAt: new Date().toISOString(),
-        });
+          importedAt: Date.now(),
+        };
+
+        await rtdbSet(ref(rtdb, `masterlist/${id}`), record);
         savedCount++;
       }
 
-      await addDoc(collection(db, "masterlistImports"), {
+      const logId = generateId();
+      await rtdbSet(ref(rtdb, `masterlistImports/${logId}`), {
         fileName: file.name,
         totalRecords: savedCount,
-        importedAt: new Date().toISOString(),
+        importedAt: Date.now(),
       });
 
-      setLastMasterlistImport(new Date().toISOString());
+      setLastMasterlistImport(new Date());
       alert(`✅ Successfully saved ${savedCount} masterlist records!`);
       setIsMasterlistOpen(false);
     } catch (err) {
@@ -204,7 +227,7 @@ const Validation = () => {
     }
   };
 
-  // ✅ Export (dummy for now)
+  // ✅ Export
   const handleExport = (file) => {
     if (file) {
       alert(`📤 Sending ${file.name} to DSWD...`);
@@ -215,11 +238,11 @@ const Validation = () => {
   return (
     <div className="p-6 space-y-8">
       <h1 className="text-2xl font-bold text-gray-800">DSWD Validation</h1>
-      <p className="text-gray-600 text-sm">External validation process management</p>
+      <p className="text-gray-600 text-sm">
+        External validation process management
+      </p>
 
-      {/* Export, Masterlist, Import Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Export */}
         <Card
           icon={<FaDownload className="text-orange-500 text-3xl" />}
           title="Export List for DSWD"
@@ -230,14 +253,13 @@ const Validation = () => {
           buttonStyle="bg-blue-600 hover:bg-blue-700"
         />
 
-        {/* Masterlist */}
         <Card
           icon={<FaDatabase className="text-orange-500 text-3xl" />}
           title="Import Masterlist"
           subtitle="Upload the official senior list"
           footer={`Last Import: ${
             lastMasterlistImport
-              ? new Date(lastMasterlistImport).toLocaleString()
+              ? lastMasterlistImport.toLocaleString()
               : "No imports yet"
           }`}
           buttonLabel="Import Masterlist"
@@ -245,13 +267,12 @@ const Validation = () => {
           buttonStyle="bg-purple-600 hover:bg-purple-700"
         />
 
-        {/* Validation */}
         <Card
           icon={<FaUpload className="text-orange-500 text-3xl" />}
           title="Import Validation Results"
           subtitle="Upload results returned by DSWD"
           footer={`Last Import: ${
-            lastImport ? new Date(lastImport).toLocaleString() : "No imports yet"
+            lastImport ? lastImport.toLocaleString() : "No imports yet"
           }`}
           buttonLabel="Import Results"
           onClick={() => setIsImportOpen(true)}
@@ -259,7 +280,6 @@ const Validation = () => {
         />
       </div>
 
-      {/* Modals */}
       {isExportOpen && (
         <Modal
           title="Send Export List to DSWD"
@@ -289,7 +309,15 @@ const Validation = () => {
 };
 
 // ✅ Card Component
-const Card = ({ icon, title, subtitle, footer, buttonLabel, onClick, buttonStyle }) => (
+const Card = ({
+  icon,
+  title,
+  subtitle,
+  footer,
+  buttonLabel,
+  onClick,
+  buttonStyle,
+}) => (
   <div className="bg-white p-6 rounded-xl shadow flex flex-col items-center text-center space-y-4">
     {icon}
     <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
@@ -306,7 +334,7 @@ const Card = ({ icon, title, subtitle, footer, buttonLabel, onClick, buttonStyle
   </div>
 );
 
-// ✅ Reusable Modal
+// ✅ Modal Component
 const Modal = ({ title, onClose, onConfirm, confirmLabel }) => {
   const [file, setFile] = useState(null);
 
@@ -325,7 +353,10 @@ const Modal = ({ title, onClose, onConfirm, confirmLabel }) => {
           {file && <p className="mt-2 text-sm">Selected: {file.name}</p>}
         </div>
         <div className="mt-6 flex justify-end gap-2">
-          <button className="px-4 py-2 bg-gray-300 rounded-lg" onClick={onClose}>
+          <button
+            className="px-4 py-2 bg-gray-300 rounded-lg"
+            onClick={onClose}
+          >
             Cancel
           </button>
           <button

@@ -1,16 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { FaSearch, FaLink } from "react-icons/fa";
-import { ExclamationTriangleIcon } from "@heroicons/react/24/outline"; // ✅ clean warning icon
-import { db } from "../../router/Firebase";
-import {
-  collection,
-  getDocs,
-  setDoc,
-  doc,
-  updateDoc,
-  query,
-  onSnapshot,
-} from "firebase/firestore";
+import { ExclamationTriangleIcon } from "@heroicons/react/24/outline";
+import { rtdb } from "../../router/Firebase"; // ✅ RTDB lang gagamitin
+import { ref, onValue, set, update, get } from "firebase/database";
 
 const RfidBinding = () => {
   const [selectedMember, setSelectedMember] = useState(null);
@@ -24,49 +16,100 @@ const RfidBinding = () => {
   const [isBinding, setIsBinding] = useState(false);
   const [bindMessage, setBindMessage] = useState("");
 
-  // ✅ Fetch eligible members
-  useEffect(() => {
-    const fetchEligible = async () => {
-      try {
-        const q = query(collection(db, "eligible"));
-        const snapshot = await getDocs(q);
-        const data = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        setMembers(data);
-      } catch (err) {
-        console.error("⚠️ Failed to fetch eligible:", err);
-      }
-    };
-    fetchEligible();
-  }, [bindings]);
+  const [deviceOnline, setDeviceOnline] = useState(false);
 
-  // ✅ Real-time fetch bindings
+  // ✅ Listen to device scanner (RTDB)
   useEffect(() => {
-    const q = query(collection(db, "rfidBindings"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((doc) => doc.data());
-      setBindings(data);
+    const scannerRef = ref(rtdb, "device/scanner");
+    const unsub = onValue(scannerRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        setDeviceOnline(data?.online || false);
+        if (data?.lastUID) {
+          setRfidCode(data.lastUID);
+        }
+      }
     });
 
-    return () => unsubscribe();
+    return () => unsub();
   }, []);
+
+  // ✅ Fetch eligible members (RTDB)
+  useEffect(() => {
+    const membersRef = ref(rtdb, "eligible");
+    const unsub = onValue(membersRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const arr = Object.keys(data).map((key) => ({
+          id: key,
+          ...data[key],
+        }));
+        setMembers(arr);
+      } else {
+        setMembers([]);
+      }
+    });
+
+    return () => unsub();
+  }, []);
+
+  // ✅ Fetch bindings (RTDB)
+  useEffect(() => {
+    const bindingsRef = ref(rtdb, "rfidBindings");
+    const unsub = onValue(bindingsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const arr = Object.keys(data).map((key) => ({
+          rfidCode: key,
+          ...data[key],
+        }));
+        setBindings(arr);
+      } else {
+        setBindings([]);
+      }
+    });
+
+    return () => unsub();
+  }, []);
+
+  // ✅ Cleanup orphaned member.rfidCode kapag wala na sa bindings
+  useEffect(() => {
+    members.forEach((m) => {
+      if (m.rfidCode && !bindings.some((b) => b.rfidCode === m.rfidCode)) {
+        update(ref(rtdb, `eligible/${m.id}`), { rfidCode: null });
+      }
+    });
+  }, [members, bindings]);
 
   const handleSelectMember = (member) => {
     setSelectedMember(member);
     setBindMessage("");
+    setRfidCode("");
   };
 
-  const handleStartScan = () => {
-    const deviceDetected = false; // 🚨 Replace with real device detection
-    if (!deviceDetected) {
+  // ✅ Start Scan (RTDB)
+  const handleStartScan = async () => {
+    if (!deviceOnline) {
       setIsModalOpen(true);
-    } else {
-      setRfidCode("RFID" + Math.floor(Math.random() * 1000000));
+      return;
+    }
+
+    try {
+      const scannerRef = ref(rtdb, "device/scanner");
+      await update(scannerRef, {
+        startScan: true,
+        lastUID: "",
+        timestamp: Date.now(),
+      });
+
+      setBindMessage("📡 Waiting for RFID scan...");
+    } catch (err) {
+      console.error("❌ Failed to request scan:", err);
+      setBindMessage("❌ Error starting scan.");
     }
   };
 
+  // ✅ Bind RFID (with error handling)
   const handleBindRfid = async () => {
     if (!selectedMember || !rfidCode) return;
 
@@ -74,15 +117,43 @@ const RfidBinding = () => {
     setBindMessage("");
 
     try {
+      // Check if RFID already exists
+      const bindingRef = ref(rtdb, `rfidBindings/${rfidCode}`);
+      const existingBinding = await get(bindingRef);
+
+      if (existingBinding.exists()) {
+        setBindMessage("❌ This RFID card is already bound to another member.");
+        setIsBinding(false);
+        return;
+      }
+
+      // Check if member already has RFID
+      if (selectedMember.rfidCode) {
+        setBindMessage("❌ This member already has an RFID card.");
+        setIsBinding(false);
+        return;
+      }
+
       const newBinding = {
         ...selectedMember,
         rfidCode,
         date: new Date().toISOString(),
         status: "Bound",
+        pensionReceived: false,
+        missedConsecutive: 0,
+        lastClaimDate: null,
       };
 
-      await setDoc(doc(db, "rfidBindings", selectedMember.id), newBinding);
-      await updateDoc(doc(db, "eligible", selectedMember.id), { rfidCode });
+      // Save binding by RFID code
+      await set(bindingRef, newBinding);
+
+      // Update member
+      await update(ref(rtdb, `eligible/${selectedMember.id}`), {
+        rfidCode,
+      });
+
+      // Clear scanner lastUID
+      await update(ref(rtdb, "device/scanner"), { lastUID: "" });
 
       setBindMessage("✅ RFID successfully bound!");
       setSelectedMember(null);
@@ -106,13 +177,13 @@ const RfidBinding = () => {
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold">RFID Binding</h1>
+      <h1 className="text-2xl font-bold">RFID Binding (RTDB Only)</h1>
       <p className="text-gray-500">
         Bind RFID cards to validated senior citizens
       </p>
 
       <div className="grid md:grid-cols-2 gap-6">
-        {/* RFID Scanning Form */}
+        {/* RFID Form */}
         <div className="bg-white shadow rounded-xl p-5">
           <h2 className="font-semibold text-lg mb-4">RFID Scanning Form</h2>
           <div className="mb-3">
@@ -134,8 +205,8 @@ const RfidBinding = () => {
               type="text"
               placeholder="Scanned RFID code will appear here"
               value={rfidCode}
-              onChange={(e) => setRfidCode(e.target.value)}
-              className="w-full border rounded-lg p-2 mt-1"
+              disabled
+              className="w-full border rounded-lg p-2 mt-1 bg-gray-100"
             />
           </div>
           <div className="flex space-x-3 mt-4">
@@ -169,7 +240,7 @@ const RfidBinding = () => {
               className={`mt-3 text-sm ${
                 bindMessage.includes("✅")
                   ? "text-green-600"
-                  : "text-red-600"
+                  : "text-red-600 font-semibold"
               }`}
             >
               {bindMessage}
@@ -177,8 +248,8 @@ const RfidBinding = () => {
           )}
         </div>
 
-        {/* RFID Bindings */}
-        <div className="bg-white shadow rounded-xl p-5">
+        {/* Bindings Table */}
+        <div className="bg-white shadow rounded-xl p-5 overflow-x-auto">
           <h2 className="font-semibold text-lg mb-4">
             RFID Bindings ({bindings.length} records)
           </h2>
@@ -197,6 +268,9 @@ const RfidBinding = () => {
                   <th className="p-2 border">Barangay</th>
                   <th className="p-2 border">RFID Code</th>
                   <th className="p-2 border">Date</th>
+                  <th className="p-2 border">Pension Received</th>
+                  <th className="p-2 border">Missed Consecutive</th>
+                  <th className="p-2 border">Last Claim Date</th>
                   <th className="p-2 border">Status</th>
                 </tr>
               </thead>
@@ -211,7 +285,26 @@ const RfidBinding = () => {
                     <td className="p-2 border">
                       {new Date(b.date).toLocaleDateString()}
                     </td>
-                    <td className="p-2 border text-green-600">{b.status}</td>
+                    <td className="p-2 border">
+                      {b.pensionReceived ? "Yes" : "No"}
+                    </td>
+                    <td className="p-2 border text-red-600">
+                      {b.missedConsecutive || 0}
+                    </td>
+                    <td className="p-2 border">
+                      {b.lastClaimDate
+                        ? new Date(b.lastClaimDate).toLocaleDateString()
+                        : "-"}
+                    </td>
+                    <td
+                      className={`p-2 border ${
+                        b.status === "Bound"
+                          ? "text-green-600"
+                          : "text-gray-600"
+                      }`}
+                    >
+                      {b.status}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -221,7 +314,7 @@ const RfidBinding = () => {
       </div>
 
       {/* Eligible Members */}
-      <div className="bg-white shadow rounded-xl p-5">
+      <div className="bg-white shadow rounded-xl p-5 overflow-x-auto">
         <div className="flex justify-between items-center mb-4">
           <h2 className="font-semibold text-lg">Eligible Members</h2>
           <select
@@ -252,47 +345,63 @@ const RfidBinding = () => {
             <tr>
               <th className="p-2 border">Name</th>
               <th className="p-2 border">Barangay</th>
-              <th className="p-2 border">Status</th>
+              <th className="p-2 border">RFID Status</th>
+              <th className="p-2 border">Pension Received</th>
+              <th className="p-2 border">Missed Consecutive</th>
               <th className="p-2 border">Action</th>
             </tr>
           </thead>
           <tbody>
-            {filteredMembers.map((m) => (
-              <tr key={m.id}>
-                <td className="p-2 border">
-                  {m.firstName} {m.surname}
-                  {m.age && (
-                    <div className="text-xs text-gray-500">Age: {m.age}</div>
-                  )}
-                </td>
-                <td className="p-2 border">{m.barangay}</td>
-                <td className="p-2 border text-green-600">Eligible</td>
-                <td className="p-2 border">
-                  {m.rfidCode ? (
-                    <span className="px-3 py-1 rounded-lg text-sm bg-gray-200 text-gray-600 border">
-                      Already Bound
-                    </span>
-                  ) : selectedMember?.id === m.id ? (
-                    <button
-                      onClick={() => setSelectedMember(null)}
-                      className="px-3 py-1 rounded-lg text-sm bg-red-100 text-red-600 border border-red-400"
-                    >
-                      Selected
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleSelectMember(m)}
-                      className="px-3 py-1 rounded-lg text-sm bg-orange-500 text-white hover:bg-orange-600"
-                    >
-                      Select
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {filteredMembers.map((m) => {
+              const isBound =
+                m.rfidCode && bindings.some((b) => b.rfidCode === m.rfidCode);
+
+              return (
+                <tr key={m.id}>
+                  <td className="p-2 border">
+                    {m.firstName} {m.surname}
+                  </td>
+                  <td className="p-2 border">{m.barangay}</td>
+                  <td
+                    className={`p-2 border ${
+                      isBound ? "text-green-600" : "text-gray-500"
+                    }`}
+                  >
+                    {isBound ? "Bound" : "Eligible"}
+                  </td>
+                  <td className="p-2 border">
+                    {m.pensionReceived ? "Yes" : "No"}
+                  </td>
+                  <td className="p-2 border text-red-600">
+                    {m.missedConsecutive || 0}
+                  </td>
+                  <td className="p-2 border">
+                    {isBound ? (
+                      <span className="px-3 py-1 rounded-lg text-sm bg-gray-200 text-gray-600 border">
+                        Already Bound
+                      </span>
+                    ) : selectedMember?.id === m.id ? (
+                      <button
+                        onClick={() => setSelectedMember(null)}
+                        className="px-3 py-1 rounded-lg text-sm bg-red-100 text-red-600 border border-red-400"
+                      >
+                        Unselect
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleSelectMember(m)}
+                        className="px-3 py-1 rounded-lg text-sm bg-orange-500 text-white hover:bg-orange-600"
+                      >
+                        Select
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
             {filteredMembers.length === 0 && (
               <tr>
-                <td colSpan="4" className="text-center text-gray-400 py-4">
+                <td colSpan="6" className="text-center text-gray-400 py-4">
                   No eligible members found
                 </td>
               </tr>

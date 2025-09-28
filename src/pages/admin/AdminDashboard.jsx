@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "../../router/Firebase";
+import { rtdb } from "../../router/Firebase";
+import { ref, onValue } from "firebase/database";
 import {
   FaUsers,
   FaCheckCircle,
@@ -47,7 +47,6 @@ const isUpcoming = (birthDate, targetAge) => {
   const dob = new Date(birthDate);
   let nextBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
 
-  // if birthday already passed this year, check next year
   if (nextBirthday < today) {
     nextBirthday.setFullYear(today.getFullYear() + 1);
   }
@@ -58,8 +57,6 @@ const isUpcoming = (birthDate, targetAge) => {
 
 const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
-  const [masterlist, setMasterlist] = useState([]);
-  const [eligible, setEligible] = useState([]);
   const [barangayCounts, setBarangayCounts] = useState({});
   const [stats, setStats] = useState({
     total: 0,
@@ -71,33 +68,25 @@ const AdminDashboard = () => {
   const [nonagenarians, setNonagenarians] = useState([]);
   const [centenarians, setCentenarians] = useState([]);
 
-  // Fetch data from Firestore
+  // Fetch data from Realtime Database
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const masterSnap = await getDocs(collection(db, "masterlist"));
-        const eligibleSnap = await getDocs(collection(db, "eligible"));
+    const masterRef = ref(rtdb, "masterlist");
+    const eligibleRef = ref(rtdb, "eligible");
 
-        const masterData = masterSnap.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        }));
-        const eligibleData = eligibleSnap.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        }));
+    const unsubMaster = onValue(masterRef, (snap) => {
+      const masterData = snap.exists()
+        ? Object.keys(snap.val()).map((id) => ({ id, ...snap.val()[id] }))
+        : [];
 
-        setMasterlist(masterData);
-        setEligible(eligibleData);
+      const unsubEligible = onValue(eligibleRef, (esnap) => {
+        const eligibleData = esnap.exists()
+          ? Object.keys(esnap.val()).map((id) => ({ id, ...esnap.val()[id] }))
+          : [];
 
         // Counts
         const total = masterData.length;
         const eligibleCount = eligibleData.length;
-
-        // Active = Eligible
-        const activeCount = eligibleCount;
-
-        // Monthly payout = Eligible × ₱1,000
+        const activeCount = eligibleCount; // Active = Eligible
         const monthlyPayout = eligibleCount * 1000;
 
         setStats({
@@ -132,14 +121,16 @@ const AdminDashboard = () => {
         setOctogenarians(upcoming.filter((p) => isUpcoming(p.birthday, 80)));
         setNonagenarians(upcoming.filter((p) => isUpcoming(p.birthday, 90)));
         setCentenarians(upcoming.filter((p) => isUpcoming(p.birthday, 100)));
-      } catch (err) {
-        console.error("❌ Error fetching dashboard data:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
 
-    fetchData();
+        setLoading(false);
+      });
+
+      // Cleanup eligible listener
+      return () => unsubEligible();
+    });
+
+    // Cleanup master listener
+    return () => unsubMaster();
   }, []);
 
   // Helper: Table Component

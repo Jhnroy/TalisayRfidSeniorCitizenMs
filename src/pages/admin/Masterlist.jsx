@@ -1,37 +1,53 @@
 import React, { useState, useEffect } from "react";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "../../router/Firebase";
+import { rtdb } from "../../router/Firebase"; // ✅ Firebase RTDB
+import { ref, onValue, off } from "firebase/database";
 
 const barangays = [
   "Binanuun",
   "Caawigan",
   "Cahabaan",
   "Calintaan",
-  "Del carmen",
+  "Del Carmen",
   "Gabon",
   "Itomang",
   "Poblacion",
   "San Francisco",
-  "San isidro",
+  "San Isidro",
   "San Jose",
-  "San nicolas",
+  "San Nicolas",
   "Sta. Cruz",
   "Sta. Elena",
   "Sto. Niño",
 ];
 
-// Helper function to normalize names
-const normalizeName = (first, middle, surname) => {
-  return `${(first || "").trim()} ${(middle || "").trim()} ${(surname || "").trim()}`
+// ✅ Normalize names
+const normalizeName = (first, middle, surname, extName = "") => {
+  return `${(first || "").trim()} ${(middle || "").trim()} ${(surname || "").trim()} ${(extName || "").trim()}`
     .toLowerCase()
     .replace(/[.,]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 };
 
+// ✅ Format date
+const formatDate = (dateStr) => {
+  if (!dateStr || dateStr === "Never") return "Never";
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return "Invalid Date";
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    });
+  } catch {
+    return dateStr;
+  }
+};
+
 const Masterlist = () => {
   const [activeTab, setActiveTab] = useState("overall");
-  const [records, setRecords] = useState([]);
+  const [records, setRecords] = useState({ overall: [], pensioners: [] });
   const [filteredRecords, setFilteredRecords] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -39,105 +55,121 @@ const Masterlist = () => {
   const [barangayFilter, setBarangayFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
 
-  // Fetch masterlist and eligible, then merge
   useEffect(() => {
-    const fetchRecords = async () => {
-      try {
-        const masterSnap = await getDocs(collection(db, "masterlist"));
-        const eligibleSnap = await getDocs(collection(db, "eligible"));
+    const masterRef = ref(rtdb, "masterlist");
+    const eligibleRef = ref(rtdb, "eligible");
+    const rfidBindingsRef = ref(rtdb, "rfidBindings");
 
-        const masterData = masterSnap.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
+    let masterData = [];
+    let eligibleData = [];
+    let rfidData = [];
 
-        const eligibleData = eligibleSnap.docs.map((doc) => ({
-          ...doc.data(),
-        }));
+    const handleMaster = onValue(masterRef, (snapshot) => {
+      masterData = snapshot.exists()
+        ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data }))
+        : [];
+      mergeData(masterData, eligibleData, rfidData);
+    });
 
-        // Normalize eligible names for matching
-        const eligibleMap = eligibleData.map((e) => ({
-          ...e,
-          normName: normalizeName(e.firstName, e.middleName, e.surname),
-        }));
+    const handleEligible = onValue(eligibleRef, (snapshot) => {
+      eligibleData = snapshot.exists()
+        ? Object.entries(snapshot.val()).map(([id, data]) => ({ id, ...data }))
+        : [];
+      mergeData(masterData, eligibleData, rfidData);
+    });
 
-        // 1️⃣ Merge into masterlist (overall)
-        const mergedOverall = masterData.map((person) => {
-          const normMaster = normalizeName(
-            person.firstName,
-            person.middleName,
-            person.surname
-          );
-          const match = eligibleMap.find((e) => e.normName === normMaster);
+    const handleRfid = onValue(rfidBindingsRef, (snapshot) => {
+      rfidData = snapshot.exists()
+        ? Object.entries(snapshot.val()).map(([id, data]) => ({
+            id,
+            ...data,
+            normName: normalizeName(
+              data.firstName,
+              data.middleName,
+              data.surname,
+              data.extName
+            ),
+          }))
+        : [];
+      mergeData(masterData, eligibleData, rfidData);
+    });
 
-          return {
-            ...person,
-            status: match ? "Eligible" : "Active",
-            rfidStatus: match?.rfidStatus || "Not Registered",
-            pensionReceived: match?.pensionReceived || "No",
-            missed: match?.missed || 0,
-            lastClaim: match?.lastClaim || "Never",
-          };
-        });
+    const mergeData = (masterData, eligibleData, rfidData) => {
+      const eligibleMap = eligibleData.map((e) => ({
+        ...e,
+        normName: normalizeName(e.firstName, e.middleName, e.surname, e.extName),
+      }));
 
-        // 2️⃣ Pensioners tab (only from eligible)
-        const pensionersOnly = eligibleMap.map((e, idx) => ({
-          id: `eligible-${idx}`,
-          ...e,
-          status: "Eligible",
-          rfidStatus: e.rfidStatus || "Not Registered",
-          pensionReceived: e.pensionReceived || "No",
-          missed: e.missed || 0,
-          lastClaim: e.lastClaim || "Never",
-        }));
+      const mergedOverall = masterData.map((person) => {
+        const normMaster = normalizeName(
+          person.firstName,
+          person.middleName,
+          person.surname,
+          person.extName
+        );
 
-        setRecords({ overall: mergedOverall, pensioners: pensionersOnly });
-        setFilteredRecords(mergedOverall);
-      } catch (error) {
-        console.error("❌ Error fetching records:", error);
-      } finally {
-        setLoading(false);
-      }
+        const isEligible = eligibleMap.some((e) => e.normName === normMaster);
+        const rfidMatch = rfidData.find((r) => r.normName === normMaster);
+
+        return {
+          ...person,
+          status: isEligible ? "Eligible" : (person.status || "Active"),
+          rfidStatus: rfidMatch?.status || "Not Bound",
+          rfidCode: rfidMatch?.rfidCode || "-",
+          pensionReceived: rfidMatch?.pensionReceived ? "Yes" : "No",
+          missed: rfidMatch?.missedConsecutive ?? 0,
+          lastClaim: rfidMatch?.lastClaimDate
+            ? formatDate(rfidMatch.lastClaimDate)
+            : "Never",
+        };
+      });
+
+      const pensionersOnly = mergedOverall.filter(
+        (row) => row.status === "Eligible"
+      );
+
+      setRecords({ overall: mergedOverall, pensioners: pensionersOnly });
+      setFilteredRecords(mergedOverall);
+      setLoading(false);
     };
 
-    fetchRecords();
+    return () => {
+      off(masterRef, "value", handleMaster);
+      off(eligibleRef, "value", handleEligible);
+      off(rfidBindingsRef, "value", handleRfid);
+    };
   }, []);
 
-  // Apply filters and tab selection
   useEffect(() => {
-    if (!records || loading) return;
+    if (loading) return;
 
     let sourceData =
       activeTab === "overall" ? records.overall || [] : records.pensioners || [];
 
     let filtered = [...sourceData];
 
-    // Search by name
     if (search.trim() !== "") {
       filtered = filtered.filter((row) => {
         const fullName = normalizeName(
           row.firstName,
           row.middleName,
-          row.surname
+          row.surname,
+          row.extName
         );
         return fullName.includes(search.toLowerCase());
       });
     }
 
-    // Barangay filter
     if (barangayFilter !== "All") {
       filtered = filtered.filter(
-        (row) =>
-          row.barangay?.toLowerCase() === barangayFilter.toLowerCase()
+        (row) => row.barangay?.toLowerCase() === barangayFilter.toLowerCase()
       );
     }
 
-    // Status filter (only for overall)
     if (statusFilter !== "All" && activeTab === "overall") {
       filtered = filtered.filter(
         (row) =>
-          (row.status || "Active").toLowerCase() ===
-          statusFilter.toLowerCase()
+          (row.status || "Active").toLowerCase() === statusFilter.toLowerCase()
       );
     }
 
@@ -235,6 +267,7 @@ const Masterlist = () => {
                 <th className="px-4 py-2">Barangay</th>
                 <th className="px-4 py-2">Status</th>
                 <th className="px-4 py-2">RFID Status</th>
+                <th className="px-4 py-2">RFID Code</th>
                 <th className="px-4 py-2">Pension Received</th>
                 <th className="px-4 py-2">Missed Consecutive</th>
                 <th className="px-4 py-2">Last Claim Date</th>
@@ -244,9 +277,10 @@ const Masterlist = () => {
               {filteredRecords.map((row, idx) => (
                 <tr key={row.id || idx} className="border-t">
                   <td className="px-4 py-2">
-                    {row.surname}, {row.firstName} {row.middleName || ""}
+                    {row.surname}, {row.firstName} {row.middleName || ""}{" "}
+                    {row.extName || ""}
                   </td>
-                  <td className="px-4 py-2">{row.barangay}</td>
+                  <td className="px-4 py-2">{row.barangay || "-"}</td>
                   <td
                     className={`px-4 py-2 font-medium ${
                       row.status === "Eligible"
@@ -260,7 +294,18 @@ const Masterlist = () => {
                   >
                     {row.status}
                   </td>
-                  <td className="px-4 py-2">{row.rfidStatus}</td>
+                  <td
+                    className={`px-4 py-2 font-medium ${
+                      row.rfidStatus === "Bound"
+                        ? "text-green-600"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    {row.rfidStatus}
+                  </td>
+                  <td className="px-4 py-2 font-mono">
+                    {row.rfidCode || "-"}
+                  </td>
                   <td>{row.pensionReceived}</td>
                   <td>{row.missed}</td>
                   <td>{row.lastClaim}</td>
@@ -269,18 +314,6 @@ const Masterlist = () => {
             </tbody>
           </table>
         )}
-      </div>
-
-      {/* Pagination (placeholder) */}
-      <div className="flex justify-between items-center mt-4 text-sm text-gray-600">
-        <span>Showing {filteredRecords.length} results</span>
-        <div className="flex gap-2">
-          <button className="px-3 py-1 border rounded">Previous</button>
-          <button className="px-3 py-1 border rounded bg-orange-500 text-white">
-            1
-          </button>
-          <button className="px-3 py-1 border rounded">Next</button>
-        </div>
       </div>
     </div>
   );
